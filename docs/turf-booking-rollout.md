@@ -26,8 +26,10 @@ Closure resolution for affected bookings, manual staff bookings, player-count ov
    - `supabase/migrations/20261026000000_turf_booking_foundation.sql`
    - `supabase/migrations/20261027000000_turf_customer_operations.sql`
    - `supabase/migrations/20261028000000_turf_staff_email_provisioning.sql`
+   - `supabase/migrations/20261029000000_fix_turf_customer_bookings.sql`
+   - `supabase/migrations/20261030000000_show_all_public_turf_fixed_slots.sql`
    
-   They do not change restaurant tables or existing policies. Neither migration has been run by the application.
+   They do not change restaurant tables or existing policies. These migrations are not run automatically by the application.
 3. Verify the new tables, policies, functions, grants, and indexes in staging. In particular, test simultaneous customer requests at overlapping and 15-minute buffer-boundary times against the actual PostgreSQL database.
 4. Sign in as an existing restaurant Owner or Full Admin and open `/admin/staff#turf-access`. Enter the email address of a real, existing Google-authenticated account and assign `Turf Manager` or `Full Admin`. The person must have already signed in with Google using that email. Only the Owner can grant the Turf Full Admin role. Record a reason for each grant or deactivation.
 5. Sign in as a provisioned turf staff member and open `/turf/manage/settings`. Configure weekly hours, a non-zero hourly rate or fixed slot, publish the booking policy, set player and deadline rules, and configure accepted payment instructions. Changes are audited and schedule edits fail if they would invalidate protected bookings.

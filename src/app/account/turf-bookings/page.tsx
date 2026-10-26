@@ -106,7 +106,10 @@ export default async function CustomerTurfBookingsPage() {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("turf_customer_bookings");
     if (error) {
-        console.error("Customer turf bookings could not be loaded.", { code: error.code });
+        console.error("Customer turf bookings could not be loaded.", {
+            code: error.code,
+            message: error.message,
+        });
         return <main className="min-h-screen bg-[#f4f8f6] p-6"><p className="mx-auto max-w-3xl rounded-2xl bg-white p-6 text-sm text-red-800">Your bookings could not be loaded. Please try again.</p></main>;
     }
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { getFixedSlotDisplayAvailability } from "@/lib/turf/booking-rules";
 
 type TurfFixedSlot = {
     id: string;
@@ -30,6 +31,7 @@ type TurfDay = {
     maximum_players: number;
     advance_amount: number;
     blocked_ranges: BlockedRange[];
+    booked_ranges: { starts_at: string; ends_at: string }[];
     fixed_slots: TurfFixedSlot[];
     policy: { id: number; version: number; content: string; effective_at: string } | null;
 };
@@ -56,6 +58,7 @@ function parseDay(value: unknown): TurfDay | null {
         || typeof value.maximum_players !== "number"
         || typeof value.advance_amount !== "number"
         || !Array.isArray(value.blocked_ranges)
+        || !Array.isArray(value.booked_ranges)
         || !Array.isArray(value.fixed_slots)) {
         return null;
     }
@@ -101,6 +104,11 @@ function parseDay(value: unknown): TurfDay | null {
             }]
             : [],
     );
+    const bookedRanges = value.booked_ranges.flatMap((range) =>
+        isRecord(range) && typeof range.starts_at === "string" && typeof range.ends_at === "string"
+            ? [{ starts_at: range.starts_at, ends_at: range.ends_at }]
+            : [],
+    );
 
     return {
         local_date: value.local_date,
@@ -115,6 +123,7 @@ function parseDay(value: unknown): TurfDay | null {
         maximum_players: value.maximum_players,
         advance_amount: value.advance_amount,
         blocked_ranges: blockedRanges,
+        booked_ranges: bookedRanges,
         fixed_slots: fixedSlots,
         policy,
     };
@@ -241,9 +250,22 @@ export function TurfBookingForm({
             return !weekDay.blocked_ranges.some((block) => from < Date.parse(block.ends_at) && to > Date.parse(block.starts_at));
         });
         const hasFixedSlot = weekDay.fixed_slots.some((slot) => {
-            const from = dhakaTimestamp(weekDay.local_date, slot.starts_at);
-            const to = dhakaTimestamp(weekDay.local_date, slot.ends_at);
-            return !weekDay.blocked_ranges.some((block) => from < Date.parse(block.ends_at) && to > Date.parse(block.starts_at));
+            const operatingHours = weekDay.opens_at && weekDay.closes_at
+                ? {
+                    startsAt: `${weekDay.local_date}T${weekDay.opens_at.slice(0, 5)}:00+06:00`,
+                    endsAt: `${weekDay.local_date}T${weekDay.closes_at.slice(0, 5)}:00+06:00`,
+                }
+                : null;
+            return getFixedSlotDisplayAvailability({
+                startsAt: `${weekDay.local_date}T${slot.starts_at.slice(0, 5)}:00+06:00`,
+                endsAt: `${weekDay.local_date}T${slot.ends_at.slice(0, 5)}:00+06:00`,
+            }, operatingHours, weekDay.booked_ranges.map((range) => ({
+                startsAt: range.starts_at,
+                endsAt: range.ends_at,
+            })), weekDay.blocked_ranges.map((range) => ({
+                startsAt: range.starts_at,
+                endsAt: range.ends_at,
+            }))) === "available";
         });
         const hasAvailability = hasHourlySlot || hasFixedSlot;
         const hasBookings = weekDay.blocked_ranges.some((block) => block.kind === "booked");
@@ -283,20 +305,35 @@ export function TurfBookingForm({
             );
         });
     }, [date, day, duration, hourlyTimes]);
-    const availableFixedSlots = useMemo(() => {
+    const fixedSlotAvailability = useMemo(() => {
         if (!day) return [];
-        return day.fixed_slots.filter((slot) => {
-            const fromMs = dhakaTimestamp(date, slot.starts_at);
-            const toMs = dhakaTimestamp(date, slot.ends_at);
-            return !day.blocked_ranges.some((blocked) =>
-                fromMs < Date.parse(blocked.ends_at) && toMs > Date.parse(blocked.starts_at),
-            );
-        });
+        const operatingHours = day.is_open && day.opens_at && day.closes_at
+            ? {
+                startsAt: `${date}T${day.opens_at.slice(0, 5)}:00+06:00`,
+                endsAt: `${date}T${day.closes_at.slice(0, 5)}:00+06:00`,
+            }
+            : null;
+        return day.fixed_slots.map((slot) => ({
+            slot,
+            availability: getFixedSlotDisplayAvailability({
+                startsAt: `${date}T${slot.starts_at.slice(0, 5)}:00+06:00`,
+                endsAt: `${date}T${slot.ends_at.slice(0, 5)}:00+06:00`,
+            }, operatingHours, day.booked_ranges.map((range) => ({
+                startsAt: range.starts_at,
+                endsAt: range.ends_at,
+            })), day.blocked_ranges.map((range) => ({
+                startsAt: range.starts_at,
+                endsAt: range.ends_at,
+            }))),
+        }));
     }, [date, day]);
+    const selectedFixedSlotIsAvailable = fixedSlotAvailability.some(({ slot, availability }) =>
+        slot.id === fixedSlotId && availability === "available",
+    );
 
     async function submitBooking(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (!day?.policy || !selectedStart || !selectedEnd) return;
+        if (!day?.policy || !selectedStart || !selectedEnd || (mode === "fixed" && !selectedFixedSlotIsAvailable)) return;
         setSubmitting(true);
         setSubmitError(null);
 
@@ -357,6 +394,7 @@ export function TurfBookingForm({
 
     const bookingAllowed = signedIn && Boolean(day?.booking_enabled && day?.policy && day.is_open);
     const canSubmit = bookingAllowed && Boolean(selectedStart && selectedEnd)
+        && (mode !== "fixed" || selectedFixedSlotIsAvailable)
         && acceptedPolicy && name.trim().length > 0 && phone.trim().length > 0
         && players >= (day?.minimum_players ?? 1) && players <= (day?.maximum_players ?? 100);
 
@@ -447,14 +485,30 @@ export function TurfBookingForm({
                                     </div>
                                 ) : (
                                     <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                                        {availableFixedSlots.length ? availableFixedSlots.map((slot) => (
-                                            <button type="button" key={slot.id} onClick={() => setFixedSlotId(slot.id)}
-                                                aria-pressed={fixedSlotId === slot.id}
-                                                className={`rounded-xl border p-3 text-left transition ${fixedSlotId === slot.id ? "border-emerald-700 bg-emerald-50" : "border-[#dce8e0] hover:border-emerald-500"}`}>
-                                                <span className="block text-sm font-bold">{slot.label}</span>
-                                                <span className="mt-1 block text-xs text-[#597267]">{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)} · {formatPrice(slot.price)}</span>
-                                            </button>
-                                        )) : <p className="col-span-full rounded-xl bg-[#f4f8f6] p-4 text-sm text-[#597267]">No fixed slots are available for this date.</p>}
+                                        {fixedSlotAvailability.length ? fixedSlotAvailability.map(({ slot, availability }) => {
+                                            const selected = fixedSlotId === slot.id;
+                                            const available = availability === "available" && day.is_open && day.booking_enabled;
+                                            const className = availability === "booked"
+                                                ? "cursor-not-allowed border-red-400 bg-red-100 text-red-950"
+                                                : available
+                                                    ? selected
+                                                        ? "border-emerald-700 bg-emerald-100 text-emerald-950"
+                                                        : "border-emerald-300 bg-emerald-50 text-emerald-950 hover:border-emerald-500"
+                                                    : "cursor-not-allowed border-amber-200 bg-amber-50 text-amber-900";
+                                            const status = availability === "booked"
+                                                ? "Booked"
+                                                : available
+                                                    ? "Available"
+                                                    : "Unavailable";
+                                            return (
+                                                <button type="button" key={slot.id} disabled={!available} onClick={() => setFixedSlotId(slot.id)}
+                                                    aria-pressed={selected} className={`rounded-xl border p-3 text-left transition disabled:opacity-100 ${className}`}>
+                                                    <span className="block text-sm font-bold">{slot.label}</span>
+                                                    <span className="mt-1 block text-xs">{slot.starts_at.slice(0, 5)}–{slot.ends_at.slice(0, 5)} · {formatPrice(slot.price)}</span>
+                                                    <span className="mt-1 block text-xs font-bold">{status}</span>
+                                                </button>
+                                            );
+                                        }) : <p className="col-span-full rounded-xl bg-[#f4f8f6] p-4 text-sm text-[#597267]">No fixed slots are configured for this date.</p>}
                                     </div>
                                 )}
                                 {mode === "hourly" && !availableStarts.length ? <p className="mt-3 text-sm text-[#7c5b1b]">No available hourly starts for this duration.</p> : null}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     canTransitionBookingStatus,
+    getFixedSlotDisplayAvailability,
     getSlotAvailability,
     hasReservationConflict,
     isWithinOperatingHours,
@@ -70,6 +71,29 @@ test("slot availability distinguishes bookings, closures, closed days and outsid
         endsAt: "2026-10-26T23:00:00+06:00",
     }, operatingHours, []), "unavailable");
     assert.equal(getSlotAvailability(requested, operatingHours, []), "available");
+});
+
+test("fixed slots remain visible with booked and unavailable states", () => {
+    const slot = {
+        startsAt: "2026-10-26T13:00:00+06:00",
+        endsAt: "2026-10-26T14:30:00+06:00",
+    };
+    const hours = {
+        startsAt: "2026-10-26T09:00:00+06:00",
+        endsAt: "2026-10-26T22:00:00+06:00",
+    };
+    assert.equal(getFixedSlotDisplayAvailability(slot, hours, [], []), "available");
+    assert.equal(getFixedSlotDisplayAvailability(slot, hours, [slot], [slot]), "booked");
+    assert.equal(getFixedSlotDisplayAvailability(slot, hours, [], [slot]), "unavailable");
+    assert.equal(getFixedSlotDisplayAvailability(slot, hours, [], [{
+        startsAt: "2026-10-26T12:45:00+06:00",
+        endsAt: "2026-10-26T13:15:00+06:00",
+    }]), "unavailable");
+    assert.equal(getFixedSlotDisplayAvailability(slot, null, [], []), "unavailable");
+    assert.equal(getFixedSlotDisplayAvailability(slot, {
+        ...hours,
+        endsAt: "2026-10-26T13:30:00+06:00",
+    }, [], []), "unavailable");
 });
 
 test("requested duration, increment, future start and booking horizon are validated", () => {

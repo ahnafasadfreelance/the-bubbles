@@ -88,6 +88,25 @@ export function getSlotAvailability(
     return "available";
 }
 
+export function getFixedSlotDisplayAvailability(
+    requested: TimeInterval,
+    operatingHours: TimeInterval | null,
+    bookedRanges: readonly TimeInterval[],
+    blockedRanges: readonly TimeInterval[],
+): "available" | "booked" | "unavailable" {
+    if (!operatingHours || !isWithinOperatingHours(requested, operatingHours)) return "unavailable";
+
+    const requestedTime = intervalMilliseconds(requested);
+    const overlaps = (range: TimeInterval) => {
+        const blockedTime = intervalMilliseconds(range);
+        return requestedTime.startsAt < blockedTime.endsAt
+            && requestedTime.endsAt > blockedTime.startsAt;
+    };
+    if (bookedRanges.some(overlaps)) return "booked";
+    if (blockedRanges.some(overlaps)) return "unavailable";
+    return "available";
+}
+
 export type SlotRules = {
     mode: "hourly" | "fixed";
     minimumDurationMinutes: number;

@@ -172,6 +172,8 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
     const [slotStart, setSlotStart] = useState("18:00");
     const [slotEnd, setSlotEnd] = useState("19:00");
     const [slotPrice, setSlotPrice] = useState(1000);
+    const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+    const [slotIsActive, setSlotIsActive] = useState(true);
     const [paymentMethod, setPaymentMethod] = useState(PAYMENT_OPTIONS[0].value);
     const [paymentName, setPaymentName] = useState("");
     const [accountDetails, setAccountDetails] = useState("");
@@ -182,10 +184,10 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
         return <p role="alert" className="rounded-2xl bg-white p-6 text-sm text-red-800">Turf settings could not be read. Refresh and retry.</p>;
     }
 
-    async function save(operation: string, call: () => Promise<{ error: { message: string; code?: string } | null }>) {
+    async function save(operation: string, call: () => Promise<{ error: { message: string; code?: string } | null }>): Promise<boolean> {
         if (reason.trim().length < 3) {
             setError("Enter a reason for this settings change.");
-            return;
+            return false;
         }
         setBusy(operation);
         setError(null);
@@ -208,13 +210,30 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
                 if (result.error.code === "23P01" && operation === "fixed-slot") {
                     throw new Error("This fixed slot overlaps another active slot or is already used by a protected booking. Choose a non-overlapping time; existing booked slots cannot be changed.");
                 }
+                if (result.error.code === "22023" && operation === "settings") {
+                    if (result.error.message.includes("Publish a policy")) {
+                        throw new Error("Bookings could not be enabled. Publish a policy, configure at least one open day, and set a non-zero hourly rate or add an active fixed slot first.");
+                    }
+                    throw new Error("Booking settings are invalid. Check that all values are within their allowed ranges and that maximum players is at least the minimum.");
+                }
+                if (result.error.code === "22023" && operation.startsWith("weekday-")) {
+                    throw new Error(`Operating hours were not saved: ${result.error.message || "choose a valid opening and closing time, with closing later than opening."}`);
+                }
+                if (result.error.code === "22023" && operation === "payment-method") {
+                    throw new Error("Payment instructions were not saved. Enter all fields and keep the display name and account type within 100 characters, account details within 500 characters, and instructions within 2,000 characters.");
+                }
+                if (result.error.code === "22023" && operation === "fixed-slot") {
+                    throw new Error("Fixed slot was not saved. Enter a label, valid start and end times with the end after the start, a price greater than zero, and a reason.");
+                }
                 throw new Error(`Settings were not saved (${result.error.code ?? "database error"}).`);
             }
             setNotice("Changes saved and recorded in the turf audit history.");
             setReason("");
             router.refresh();
+            return true;
         } catch (saveError) {
             setError(saveError instanceof Error ? saveError.message : "Settings could not be saved.");
+            return false;
         } finally {
             setBusy(null);
         }
@@ -280,7 +299,12 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
                                 <div className="flex flex-wrap items-center gap-3">
                                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={hours.is_closed}
                                         onChange={(event) => setWeekly(weekly.map((item) => item.weekday === weekday
-                                            ? { ...item, is_closed: event.target.checked }
+                                            ? {
+                                                ...item,
+                                                is_closed: event.target.checked,
+                                                opens_at: event.target.checked ? item.opens_at : item.opens_at ?? "09:00",
+                                                closes_at: event.target.checked ? item.closes_at : item.closes_at ?? "22:00",
+                                            }
                                             : item))} className="accent-emerald-700" /> Closed</label>
                                     {!hours.is_closed ? <>
                                         <input type="time" value={hours.opens_at ?? "09:00"} aria-label={`${label} opens at`}
@@ -292,16 +316,29 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
                                             className={inputClass + " max-w-36"} />
                                     </> : null}
                                 </div>
-                                <button type="button" disabled={busy !== null} onClick={() => save(`weekday-${weekday}`, async () => {
-                                    const supabase = createClient();
-                                    return supabase.rpc("turf_set_weekly_hours", {
-                                        p_weekday: weekday,
-                                        p_is_closed: hours.is_closed,
-                                        p_opens_at: hours.is_closed ? null : hours.opens_at,
-                                        p_closes_at: hours.is_closed ? null : hours.closes_at,
-                                        p_reason: reason.trim(),
+                                <button type="button" disabled={busy !== null} onClick={() => {
+                                    const opensAt = hours.opens_at ?? "09:00";
+                                    const closesAt = hours.closes_at ?? "22:00";
+                                    if (!hours.is_closed && (
+                                        !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(opensAt)
+                                        || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(closesAt)
+                                        || opensAt >= closesAt
+                                    )) {
+                                        setNotice(null);
+                                        setError(`${label} hours were not saved. Enter a valid opening and closing time, with closing later than opening.`);
+                                        return;
+                                    }
+                                    return save(`weekday-${weekday}`, async () => {
+                                        const supabase = createClient();
+                                        return supabase.rpc("turf_set_weekly_hours", {
+                                            p_weekday: weekday,
+                                            p_is_closed: hours.is_closed,
+                                            p_opens_at: hours.is_closed ? null : opensAt,
+                                            p_closes_at: hours.is_closed ? null : closesAt,
+                                            p_reason: reason.trim(),
+                                        });
                                     });
-                                })} className="min-h-9 rounded-lg border border-[#cbd9d0] px-3 text-xs font-bold text-[#087a4a] disabled:opacity-50">
+                                }} className="min-h-9 rounded-lg border border-[#cbd9d0] px-3 text-xs font-bold text-[#087a4a] disabled:opacity-50">
                                     {busy === `weekday-${weekday}` ? "Saving…" : "Save day"}
                                 </button>
                             </div>
@@ -318,30 +355,68 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
                     {configuration.fixed_slots.map((slot) => (
                         <div key={slot.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#f4f8f6] p-3 text-sm">
                             <span><strong>{slot.label}</strong> · {slot.starts_at}–{slot.ends_at} · BDT {slot.price} · {slot.is_active ? "Active" : "Inactive"}</span>
+                            <button type="button" disabled={busy !== null} onClick={() => {
+                                setEditingSlotId(slot.id);
+                                setSlotLabel(slot.label);
+                                setSlotStart(slot.starts_at);
+                                setSlotEnd(slot.ends_at);
+                                setSlotPrice(slot.price);
+                                setSlotIsActive(slot.is_active);
+                                setError(null);
+                                setNotice(null);
+                            }} className="min-h-9 rounded-lg border border-[#cbd9d0] px-3 text-xs font-bold text-[#087a4a] disabled:opacity-50">
+                                Edit
+                            </button>
                         </div>
                     ))}
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <label className="text-sm font-semibold">Slot label<input className={inputClass + " mt-1"} value={slotLabel} onChange={(event) => setSlotLabel(event.target.value)} /></label>
-                    <label className="text-sm font-semibold">Price (BDT)<input type="number" min="1" value={slotPrice} onChange={(event) => setSlotPrice(Number(event.target.value))} className={inputClass + " mt-1"} /></label>
+                    <label className="text-sm font-semibold">Slot label<input maxLength={100} className={inputClass + " mt-1"} value={slotLabel} onChange={(event) => setSlotLabel(event.target.value)} /></label>
+                    <label className="text-sm font-semibold">Price (BDT)<input type="number" min="1" max="9999999999.99" step="0.01" value={slotPrice} onChange={(event) => setSlotPrice(Number(event.target.value))} className={inputClass + " mt-1"} /></label>
                     <label className="text-sm font-semibold">Starts<input type="time" value={slotStart} onChange={(event) => setSlotStart(event.target.value)} className={inputClass + " mt-1"} /></label>
                     <label className="text-sm font-semibold">Ends<input type="time" value={slotEnd} onChange={(event) => setSlotEnd(event.target.value)} className={inputClass + " mt-1"} /></label>
                 </div>
+                {editingSlotId ? <label className="mt-3 flex items-center gap-2 text-sm font-semibold">
+                    <input type="checkbox" checked={slotIsActive} onChange={(event) => setSlotIsActive(event.target.checked)} className="h-4 w-4 accent-emerald-700" />
+                    Active
+                </label> : null}
                 <ReasonField value={reason} onChange={setReason} />
-                <button type="button" disabled={busy !== null || !slotLabel.trim() || slotStart >= slotEnd} onClick={() => save("fixed-slot", async () => {
-                    const supabase = createClient();
-                    return supabase.rpc("turf_set_fixed_slot", {
-                        p_slot_id: null,
-                        p_label: slotLabel.trim(),
-                        p_starts_at: slotStart,
-                        p_ends_at: slotEnd,
-                        p_price: slotPrice,
-                        p_is_active: true,
-                        p_reason: reason.trim(),
-                    });
-                })} className="mt-3 min-h-10 rounded-lg bg-[#087a4a] px-4 text-sm font-bold text-white disabled:opacity-50">
-                    {busy === "fixed-slot" ? "Saving…" : "Add fixed slot"}
-                </button>
+                <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" disabled={busy !== null || !slotLabel.trim() || slotLabel.trim().length > 100 || !Number.isFinite(slotPrice) || slotPrice <= 0 || slotPrice > 9999999999.99 || slotStart >= slotEnd} onClick={() => {
+                        void save("fixed-slot", async () => {
+                            const supabase = createClient();
+                            return supabase.rpc("turf_set_fixed_slot", {
+                                p_slot_id: editingSlotId,
+                                p_label: slotLabel.trim(),
+                                p_starts_at: slotStart,
+                                p_ends_at: slotEnd,
+                                p_price: slotPrice,
+                                p_is_active: editingSlotId ? slotIsActive : true,
+                                p_reason: reason.trim(),
+                            });
+                        }).then((saved) => {
+                            if (!saved) return;
+                            setEditingSlotId(null);
+                            setSlotLabel("");
+                            setSlotStart("18:00");
+                            setSlotEnd("19:00");
+                            setSlotPrice(1000);
+                            setSlotIsActive(true);
+                        });
+                    }} className="min-h-10 rounded-lg bg-[#087a4a] px-4 text-sm font-bold text-white disabled:opacity-50">
+                        {busy === "fixed-slot" ? "Saving…" : editingSlotId ? "Save fixed slot" : "Add fixed slot"}
+                    </button>
+                    {editingSlotId ? <button type="button" disabled={busy !== null} onClick={() => {
+                        setEditingSlotId(null);
+                        setSlotLabel("");
+                        setSlotStart("18:00");
+                        setSlotEnd("19:00");
+                        setSlotPrice(1000);
+                        setSlotIsActive(true);
+                    }} className="min-h-10 rounded-lg border border-[#cbd9d0] px-4 text-sm font-bold text-[#425b70] disabled:opacity-50">
+                        Cancel edit
+                    </button> : null}
+                </div>
             </section>
 
             <section className="rounded-2xl border border-[#dce8e0] bg-white p-5 sm:p-6">
@@ -376,10 +451,10 @@ export function TurfSettingsPanel({ initial }: { initial: Json }) {
                     <label className="text-sm font-semibold">Method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass + " mt-1"}>
                         {PAYMENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select></label>
-                    <label className="text-sm font-semibold">Display name<input value={paymentName} onChange={(event) => setPaymentName(event.target.value)} className={inputClass + " mt-1"} /></label>
-                    <label className="text-sm font-semibold">Account details<input value={accountDetails} onChange={(event) => setAccountDetails(event.target.value)} className={inputClass + " mt-1"} /></label>
-                    <label className="text-sm font-semibold">Account type<input value={accountType} onChange={(event) => setAccountType(event.target.value)} className={inputClass + " mt-1"} /></label>
-                    <label className="text-sm font-semibold sm:col-span-2">Instructions<textarea rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} className={inputClass + " mt-1 py-2"} /></label>
+                    <label className="text-sm font-semibold">Display name<input maxLength={100} value={paymentName} onChange={(event) => setPaymentName(event.target.value)} className={inputClass + " mt-1"} /></label>
+                    <label className="text-sm font-semibold">Account details<input maxLength={500} value={accountDetails} onChange={(event) => setAccountDetails(event.target.value)} className={inputClass + " mt-1"} /></label>
+                    <label className="text-sm font-semibold">Account type<input maxLength={100} value={accountType} onChange={(event) => setAccountType(event.target.value)} className={inputClass + " mt-1"} /></label>
+                    <label className="text-sm font-semibold sm:col-span-2">Instructions<textarea rows={3} maxLength={2000} value={instructions} onChange={(event) => setInstructions(event.target.value)} className={inputClass + " mt-1 py-2"} /></label>
                 </div>
                 <ReasonField value={reason} onChange={setReason} />
                 <button type="button" disabled={busy !== null || !paymentName.trim() || !accountDetails.trim() || !instructions.trim()} onClick={() => save("payment-method", async () => {
