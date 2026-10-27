@@ -42,7 +42,7 @@ export default async function CartPage() {
                         <p className="mt-1 text-xs text-[#617991] sm:text-sm">Review your dishes before placing your order.</p>
                     </div>
                 </header>
-                {tableContext ? <OrderingSessionNotice /> : null}
+                {tableContext ? <OrderingSessionNotice tableLabel={tableContext.tableName || `Table ${tableContext.tableNumber}`} /> : null}
                 <CartView
                     menuItems={catalog.items}
                     currency={settings.restaurant.currency}

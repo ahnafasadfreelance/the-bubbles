@@ -68,18 +68,12 @@ export default async function MenuPage({
                     </aside>
                 ) : null}
                 {tableContext ? (
-                    <aside aria-label="Dine-in table context" className="flex flex-col gap-1 border-l-4 border-[#14a6d1] bg-[#e9f8fd] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#0879be]">Dine in</p>
-                        <p className="text-sm font-semibold text-[#09294d]">
-                            {tableContext.tableName || `Table ${tableContext.tableNumber}`}
-                        </p>
-                    </aside>
+                    <OrderingSessionNotice tableLabel={tableContext.tableName || `Table ${tableContext.tableNumber}`} />
                 ) : (
                     <aside className="border-l-4 border-[#8ba7bc] bg-white px-5 py-4 text-sm leading-6 text-[#617991]">
                         To place a dine-in order when ordering is available, scan a valid QR code at your table first.
                     </aside>
                 )}
-                {tableContext ? <OrderingSessionNotice /> : null}
                 {catalog.categoryStatus !== "ready" ? (
                     <div className="mx-auto max-w-3xl"><DataNotice status={catalog.categoryStatus} subject="Menu categories" /></div>
                 ) : (

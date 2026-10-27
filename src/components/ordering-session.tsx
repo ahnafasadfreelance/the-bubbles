@@ -81,9 +81,17 @@ export function useOrderingSession() {
     return useContext(OrderingSessionContext);
 }
 
-export function OrderingSessionNotice() {
+export function OrderingSessionNotice({ tableLabel }: { tableLabel?: string }) {
     const session = useOrderingSession();
-    if (!session) return null;
+    if (!session) {
+        return tableLabel ? (
+            <aside aria-label="Dine-in table" className="flex items-center gap-2 rounded-md border border-[#16466d] bg-[#0b2e50] px-3 py-2 text-xs text-[#b8d5e8]">
+                <span className="font-bold uppercase tracking-wide text-[#4bd4f0]">Dine in</span>
+                <span aria-hidden="true" className="text-[#66859c]">·</span>
+                <span className="font-semibold text-white">{tableLabel}</span>
+            </aside>
+        ) : null;
+    }
 
     if (!session.active) {
         return (
@@ -95,17 +103,24 @@ export function OrderingSessionNotice() {
     }
 
     return (
-        <aside className="flex flex-wrap items-center justify-between gap-2 border-l-4 border-[#14a6d1] bg-[#e9f8fd] px-4 py-3 text-[#07577f]">
-            <p className="flex items-center gap-2 text-xs font-semibold sm:text-sm">
-                <Clock3 className="h-4 w-4 shrink-0 text-[#087bc1]" aria-hidden="true" />
-                <span><span className="font-bold">Your ordering session has started.</span> Please place your order within 10 minutes.</span>
+        <aside aria-label="Dine-in ordering session" className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-[#16466d] bg-[#0b2e50] px-3 py-2 text-[#d5e8f4]">
+            <p className="flex min-w-0 items-center gap-2 text-xs">
+                <span className="font-bold uppercase tracking-wide text-[#4bd4f0]">Dine in</span>
+                {tableLabel ? (
+                    <>
+                        <span aria-hidden="true" className="text-[#66859c]">·</span>
+                        <span className="truncate font-semibold text-white">{tableLabel}</span>
+                    </>
+                ) : null}
             </p>
             <p
                 role="timer"
                 aria-label={`Ordering time left: ${session.formattedTime}`}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold tabular-nums ${session.remainingSeconds <= 120 ? "bg-[#fff0e8] text-[#a84924]" : "bg-white text-[#0759a8]"}`}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold tabular-nums ${session.remainingSeconds <= 60 ? "bg-[#ffe4e4] text-[#a32323]" : session.remainingSeconds <= 120 ? "bg-[#fff0e8] text-[#a84924]" : "bg-white text-[#0759a8]"}`}
             >
-                ⏱ {session.formattedTime}
+                <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="font-medium">Time left to order</span>
+                {session.formattedTime}
             </p>
         </aside>
     );

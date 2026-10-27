@@ -58,7 +58,7 @@ export default async function DishDetailPage({ params }: DishPageProps) {
         <div className="public-mobile-shell min-h-screen bg-[#03172b] pb-20 text-white sm:pb-0">
             <SiteHeader restaurant={settings.restaurant} />
             <main className="mx-auto max-w-5xl space-y-4 px-4 py-4 sm:px-8 sm:py-8 lg:px-0">
-                {table ? <OrderingSessionNotice /> : null}
+                {table ? <OrderingSessionNotice tableLabel={table.tableLabel} /> : null}
                 <Link href="/menu" className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#91bfd7] hover:text-white sm:mb-5 sm:text-xs">
                     <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Back to menu
                 </Link>
