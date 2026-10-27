@@ -53,13 +53,15 @@ function addLogoToQrSvg(svg: string, logoDataUrl?: string | null) {
 
     const width = Number(viewBox[1]);
     const height = Number(viewBox[2]);
-    const backdropSize = Math.min(width, height) * 0.34;
-    const logoSize = Math.min(width, height) * 0.32;
+    const backdropSize = Math.min(width, height) * 0.24;
+    const logoSize = Math.min(width, height) * 0.2;
+    const logoCornerRadius = logoSize * 0.16;
     const centerX = width / 2;
     const centerY = height / 2;
     const overlay = [
         `<rect x="${centerX - backdropSize / 2}" y="${centerY - backdropSize / 2}" width="${backdropSize}" height="${backdropSize}" rx="${backdropSize * 0.12}" fill="#FFFFFF"/>`,
-        `<image href="${escapeXmlAttribute(logoDataUrl)}" x="${centerX - logoSize / 2}" y="${centerY - logoSize / 2}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid meet"/>`,
+        `<defs><clipPath id="table-qr-logo-clip"><rect x="${centerX - logoSize / 2}" y="${centerY - logoSize / 2}" width="${logoSize}" height="${logoSize}" rx="${logoCornerRadius}"/></clipPath></defs>`,
+        `<image href="${escapeXmlAttribute(logoDataUrl)}" x="${centerX - logoSize / 2}" y="${centerY - logoSize / 2}" width="${logoSize}" height="${logoSize}" preserveAspectRatio="xMidYMid meet" clip-path="url(#table-qr-logo-clip)"/>`,
     ].join("");
 
     return svg.replace("</svg>", `${overlay}</svg>`);
